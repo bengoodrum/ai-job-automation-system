@@ -1,0 +1,10 @@
+keywords:
+  - operations coordinator
+
+adzuna_app_id: "YOUR_APP_ID"
+adzuna_app_key: "YOUR_API_KEY"
+
+country: "us"
+
+results_per_search: 20
+min_salary: 70000

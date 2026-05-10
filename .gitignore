@@ -1,0 +1,15 @@
+venv/
+__pycache__/
+*.pyc
+
+config.yaml
+jobs.csv
+application_plan.csv
+applied_jobs.csv
+seen_jobs.csv
+
+cover_letters/
+
+.env
+
+.DS_Store
