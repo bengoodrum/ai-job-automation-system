@@ -15,14 +15,19 @@ A Python-based job automation workflow that searches, filters, ranks, and organi
 - Role categorization
 - International/APAC job targeting support
 
+## Screenshots
+
+![Terminal](./screenshots/terminal.png)
+
+![Tracking](./screenshots/tracking.png)
+
 ## Technologies Used
 
 - Python
 - APIs
-<<<<<<< HEAD
 - CSV Processing
 - YAML
-- VS Code
+- Github
 - PDF Generation
 - Workflow Automation
 
@@ -40,22 +45,3 @@ python3 main.py
 - Web dashboard
 - AI resume tailoring
 - International job recommendation engine
-=======
-- YAML
-- CSV Processing
-- VS Code
-- Workflow Automation
-- AI Coding Tools
-
-## Purpose
-
-This project was created to improve efficiency and organization in large-scale job application and workflow management processes while expanding technical operations and automation skills.
-
-## Current Focus
-
-- Workflow optimization
-- Systems organization
-- Process automation
-- Data handling and reporting# ai-job-automation-system
-Python-based workflow automation system for job filtering, tracking, and application workflows.
->>>>>>> 508243241d14daab062471b6a81b0b3d56d2cf16
