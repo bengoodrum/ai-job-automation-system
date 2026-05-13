@@ -13,3 +13,7 @@ cover_letters/
 .env
 
 .DS_Store
+resume.txt
+*.pdf
+
+job_description.txt

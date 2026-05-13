@@ -252,58 +252,59 @@ def extract_resume_data(resume_file="resume.txt"):
 
 
 def filter_jobs(jobs, config=None):
-    """Filter jobs based on title, description, and salary criteria"""
+    """Filter jobs based on config keywords and exclude criteria"""
     filtered = []
     
-    # Get exclude_keywords from config
+    # Get config lists
+    keywords = []
+    if config and config.get("keywords"):
+        keywords = [kw.lower() for kw in config.get("keywords", [])]
+    
     exclude_keywords = []
     if config and config.get("exclude_keywords"):
         exclude_keywords = [kw.lower() for kw in config.get("exclude_keywords", [])]
     
-    # Get min_salary from config
-    min_salary = None
-    if config and config.get("min_salary"):
-        min_salary = config.get("min_salary")
-    
-    # Get include_healthcare from config
+    min_salary = config.get("min_salary") if config else None
     include_healthcare = config.get("include_healthcare", False) if config else False
     
     for job in jobs:
         title = job.get("title", "").lower()
         description = job.get("description", "").lower()
         salary_min = job.get("salary_min")
+        text = f"{title} {description}"
 
-        # Exclude healthcare jobs unless explicitly included
+        # Skip healthcare unless explicitly included
         healthcare_terms = ["clinical", "nurse", "rn", "prn", "physician", "medical", "healthcare"]
         if not include_healthcare and any(term in title for term in healthcare_terms):
             continue
 
-        # Exclude jobs with config exclude_keywords
-        if any(keyword in title or keyword in description for keyword in exclude_keywords):
+        # Skip if contains exclude keywords
+        if any(keyword in text for keyword in exclude_keywords):
             continue
 
-        # Exclude jobs with forbidden words in title
+        # Skip if contains EXCLUDE_TITLE_WORDS or EXCLUDE_TECHNICAL_ROLES (from constants)
         if any(word in title for word in EXCLUDE_TITLE_WORDS):
             continue
-
-        # Exclude technical roles
         if any(role in title for role in EXCLUDE_TECHNICAL_ROLES):
             continue
         
-        # Exclude jobs below min_salary
+        # Skip jobs below min_salary if salary is known
         if min_salary and salary_min:
-            if salary_min < min_salary:
-                continue
+            try:
+                if float(salary_min) < min_salary:
+                    continue
+            except (TypeError, ValueError):
+                pass
 
-        # Prefer titles with coordinator/assistant/associate
+        # MAIN CHECK: Keep if job contains ANY of the config keywords
+        # OR has preferred title words (coordinator, assistant, associate)
+        # OR mentions entry-level experience
+        has_keyword_match = any(keyword in text for keyword in keywords) if keywords else False
         has_preferred = any(word in title for word in PREFER_TITLE_WORDS)
-
-        # Check for entry-level experience mentions
         has_entry_exp = any(pattern in description for pattern in EXPERIENCE_PATTERNS)
 
-        # Keep if it has preferred terms or entry-level mentions
-        if has_preferred or has_entry_exp:
-            # Add job_id to the job
+        # Keep job if it matches any of these criteria
+        if has_keyword_match or has_preferred or has_entry_exp:
             job_id = generate_job_id(job.get("company"), job.get("title"))
             job["job_id"] = job_id
             filtered.append(job)
@@ -1155,10 +1156,13 @@ def generate_application_plan(jobs, resume_data, config, output_file="applicatio
             "job_id": job.get("job_id", ""),
             "company": job.get("company", "Unknown"),
             "title": job.get("title", "Unknown"),
+            "fit_score": score,
+            "priority": job.get("priority", "Medium"),
+            "match_reasons": " | ".join(job.get("match_reasons", [])),
+            "red_flags": " | ".join(job.get("red_flags", [])),
             "salary_min": job.get("salary_min", ""),
             "salary_max": job.get("salary_max", ""),
             "salary_status": salary_status,
-            "score": score,
             "interview_probability": interview_prob,
             "should_apply": should_apply,
             "experience_requirement": experience_requirement,
@@ -1181,30 +1185,33 @@ def generate_application_plan(jobs, resume_data, config, output_file="applicatio
         if len(plan_rows) >= daily_target:
             break
 
-    # Sort by: Apply first, then Japan/APAC relevance, then fit score, then salary
+    # Sort by: Apply first, then High priority, then fit score, then salary
     should_apply_order = {"Apply": 0, "Maybe": 1, "No": 2}
     priority_order = {"High": 0, "Medium": 1, "Low": 2}
     stretch_order = {"Low": 0, "Medium": 1, "High": 2}
     
     plan_rows.sort(key=lambda x: (
         should_apply_order.get(x["should_apply"], 2),
-        -max(x.get("japan_connection", 0), x.get("travel_potential", 0)),  # Japan/APAC relevance
-        -x.get("realistic_fit_score", 0),  # Fit score
-        -(parse_salary_min(x) or 0),  # Salary
-        -x["score"],
+        priority_order.get(x.get("priority", "Medium"), 1),  # High priority first
+        -x.get("fit_score", 0),  # Highest fit score first
+        -(parse_salary_min(x) or 0),  # Highest salary first
     ))
     plan_rows = plan_rows[:max_results]
 
-    print(f"Skipped {skipped_applied} already-applied jobs")
-    print(f"Skipped {skipped_seen} already-seen jobs")
-    print(f"Skipped {skipped_low_salary} low-salary jobs")
-    print(f"Skipped {skipped_experience} experience-too-high jobs")
+    print(f"\n📊 Filtering Summary:")
+    print(f"  ✓ Total jobs processed: {len(jobs)}")
+    print(f"  ✗ Skipped {skipped_applied} already-applied jobs")
+    print(f"  ✗ Skipped {skipped_seen} already-seen jobs")
+    print(f"  ✗ Skipped {skipped_low_salary} low-salary/unknown jobs")
+    print(f"  ✗ Skipped {skipped_experience} high-experience jobs")
+    print(f"  ✓ Final application plan: {len(plan_rows)} jobs\n")
 
     try:
         with open(output_file, "w", newline="", encoding="utf-8") as f:
             fieldnames = [
-                "job_id", "company", "title", "salary_min", "salary_max", "salary_status",
-                "score", "interview_probability", "should_apply", "experience_requirement",
+                "job_id", "company", "title", "fit_score", "priority", "match_reasons", "red_flags",
+                "salary_min", "salary_max", "salary_status",
+                "interview_probability", "should_apply", "experience_requirement",
                 "role_category", "tech_fit_reason", "reason_to_apply", "resume_bullets", "short_message", 
                 "cover_letter_pdf", "link", "status",
                 # New Japan/APAC columns
@@ -1215,8 +1222,8 @@ def generate_application_plan(jobs, resume_data, config, output_file="applicatio
             writer.writeheader()
             for row in plan_rows:
                 writer.writerow(row)
-        print(f"Saved {len(plan_rows)} new applications")
-        print(f"PDFs generated: {saved_pdf_count}")
+        print(f"✓ Saved {len(plan_rows)} applications to {output_file}")
+        print(f"✓ PDFs generated: {saved_pdf_count}\n")
     except Exception as e:
         print(f"Error saving to {output_file}: {e}")
 
@@ -1335,108 +1342,171 @@ def fetch_real_jobs_fallback():
 
 def score_job(job, keywords, config=None, job_title_weight=2):
     """
-    Score a job based on keyword matches, tech fit signals, and salary preference.
-    Includes Japan/APAC boost signals.
+    Score a job using a point-based system.
+    Uses the new scoring logic optimized for analyst/operations roles.
     """
-    score = 0
+    score = 40  # Base score
+    match_reasons = []
+    red_flags = []
+    
     title = (job.get("title") or "").lower()
     description = (job.get("description") or "").lower()
-    job_text = f"{title} {description}"
+    text = f"{title} {description}"
     salary_min = job.get("salary_min")
-    salary_min_value = None
+    
     try:
-        if salary_min is not None and salary_min != "":
-            salary_min_value = float(salary_min)
+        salary_min_value = float(salary_min) if (salary_min and salary_min != "") else None
     except (TypeError, ValueError):
         salary_min_value = None
-
-    min_salary = config.get("min_salary", 60000) if config else 60000
-    ideal_salary = config.get("ideal_salary", 70000) if config else 70000
-
-    # Base keyword scoring
-    for keyword in keywords:
-        keyword_lower = keyword.lower()
-        if keyword_lower in title:
-            score += 12 * job_title_weight
-        score += job_text.count(keyword_lower) * 5
-
-    # Heavy bonuses for preferred titles
-    for word in PREFER_TITLE_WORDS:
-        if word in title:
-            score += 40
-
-    # Japan/APAC scoring boosts
-    japan_apac_boost = 0
-    for term in JAPAN_APAC_BOOST_TERMS:
-        if term in title or term in description:
-            if term in ["japan", "japanese", "tokyo"]:
-                japan_apac_boost += 50
-            elif term in ["apac", "asia-pacific"]:
-                japan_apac_boost += 45
-            elif term in ["international", "global"]:
-                japan_apac_boost += 30
-            elif term in ["localization", "gaming", "music", "events"]:
-                japan_apac_boost += 20
-            elif term in ["partnerships", "creator"]:
-                japan_apac_boost += 15
-            elif term in ["travel", "tourism"]:
-                japan_apac_boost += 15
-            elif term in ["saas", "implementation", "operations", "workflow", "automation"]:
-                japan_apac_boost += 10
     
-    # Cap Japan/APAC boost to avoid extreme inflation
-    score += min(japan_apac_boost, 100)
-
-    # Tech fit signal bonuses
-    tech_matches = 0
-    for term in TECH_FIT_TERMS:
-        if term in title or term in description:
-            tech_matches += 1
-    score += tech_matches * 8
-
-    # Additional boost for tech-adjacent title signals
-    for term in TECH_ADJACENT_TITLE_TERMS:
-        if term in title:
-            score += 40
-
-    # Bonus for entry-level experience mentions
-    for pattern in EXPERIENCE_PATTERNS:
-        if pattern in description:
-            score += 25
-
-    # Salary preference bonuses
-    if salary_min_value is not None:
-        if salary_min_value >= ideal_salary:
-            score += 35
-        elif salary_min_value >= min_salary:
-            score += 15
-        else:
-            score -= 50
-    else:
-        score -= 5
-
-    # Penalties for excluded terms
-    for word in EXCLUDE_TITLE_WORDS:
-        if word in title:
-            score -= 100
-    for role in EXCLUDE_TECHNICAL_ROLES:
+    # 1. Check for target roles
+    target_roles = [
+        "operations analyst",
+        "business analyst",
+        "business systems analyst",
+        "technical operations coordinator",
+        "technical project coordinator",
+        "product operations associate",
+        "revenue operations analyst",
+        "revops",
+        "sales operations analyst",
+        "workflow automation specialist",
+        "implementation specialist",
+        "data operations analyst",
+        "qa analyst",
+    ]
+    
+    for role in target_roles:
         if role in title:
-            score -= 120
-
-    return max(0, int(score))
+            score += 40
+            match_reasons.append(f"Target role: {role}")
+            break
+    
+    # 2. Positive keywords
+    positive_keywords = {
+        "analyst": 20,
+        "operations": 15,
+        "implementation": 15,
+        "systems": 15,
+        "business": 15,
+        "automation": 15,
+        "process improvement": 10,
+        "workflow": 10,
+        "documentation": 10,
+        "requirements gathering": 10,
+        "saas": 10,
+        "crm": 10,
+        "salesforce": 10,
+        "jira": 10,
+        "azure devops": 10,
+        "excel": 10,
+        "google sheets": 10,
+        "python": 10,
+        "sql": 10,
+    }
+    
+    for keyword, points in positive_keywords.items():
+        if keyword in text:
+            score += points
+            if keyword not in [r for r in match_reasons]:
+                match_reasons.append(f"✓ {keyword}")
+    
+    # 3. Remote bonus
+    if "remote" in text or "hybrid" in text or "work from home" in text:
+        score += 30
+        match_reasons.append("✓ Remote position")
+    
+    # 4. Apply penalties
+    penalties = {
+        "senior": -50,
+        "manager": -50,
+        "director": -50,
+        "principal": -50,
+        "lead": -50,
+        "5+ years": -40,
+        "6+ years": -40,
+        "7+ years": -40,
+        "8+ years": -40,
+        "construction": -40,
+        "recruiting coordinator": -40,
+        "warehouse": -40,
+        "logistics": -40,
+        "event associate": -40,
+        "event coordinator": -40,
+        "grants coordinator": -40,
+        "project coordinator": -30,
+        "administrative coordinator": -30,
+        "travel coordinator": -40,
+        "localization": -40,
+        "gaming": -40,
+        "healthcare staffing": -40,
+        "onsite only": -25,
+    }
+    
+    for keyword, penalty in penalties.items():
+        if keyword in text:
+            score += penalty
+            red_flags.append(f"✗ {keyword}")
+    
+    # 5. Weak fit penalties
+    weak_keywords = {
+        "event": -30,
+        "grants": -30,
+        "travel": -25,
+        "hospitality": -25,
+    }
+    
+    for keyword, penalty in weak_keywords.items():
+        if keyword in text and keyword not in "event coordinator":  # Don't double-penalize
+            score += penalty
+            red_flags.append(f"⚠ {keyword}")
+    
+    # 6. Salary scoring
+    if salary_min_value:
+        if salary_min_value >= 70000:
+            score += 20
+            match_reasons.append(f"✓ ${salary_min_value:,.0f}")
+        elif salary_min_value < 50000:
+            score -= 20
+            red_flags.append(f"✗ Low salary: ${salary_min_value:,.0f}")
+    
+    # Clamp score
+    score = max(0, min(100, score))
+    
+    # Determine priority
+    if score >= 70:
+        priority = "High"
+    elif score >= 40:
+        priority = "Medium"
+    else:
+        priority = "Low"
+    
+    return {
+        "score": score,
+        "priority": priority,
+        "match_reasons": match_reasons[:5],
+        "red_flags": red_flags[:3],
+    }
 
 
 def score_jobs(jobs, keywords, config=None):
-    """Score all jobs and return sorted by score"""
+    """Score all jobs and return sorted by score (using new scoring system)"""
     scored_jobs = []
     for job in jobs:
-        score = score_job(job, keywords, config=config)
-        scored_jobs.append({**job, "score": score})
+        result = score_job(job, keywords, config=config)
+        job_with_score = {
+            **job,
+            "score": result["score"],
+            "priority": result["priority"],
+            "match_reasons": result["match_reasons"],
+            "red_flags": result["red_flags"],
+        }
+        scored_jobs.append(job_with_score)
     return sorted(scored_jobs, key=lambda x: x["score"], reverse=True)
 
 
 def save_results(jobs, output_file="jobs.csv"):
-    """Save top jobs to CSV file"""
+    """Save scored jobs to CSV file"""
     if not jobs:
         print("No jobs to save!")
         return
@@ -1444,11 +1514,9 @@ def save_results(jobs, output_file="jobs.csv"):
     try:
         with open(output_file, "w", newline="", encoding="utf-8") as f:
             fieldnames = [
-                "job_id", "company", "title", "location", "link", "description", "created",
-                "salary_min", "salary_max", "score",
+                "job_id", "company", "title", "location", "link", "fit_score", "priority",
+                "match_reasons", "red_flags", "salary_min", "salary_max",
             ]
-            if any(job.get("application_difficulty") for job in jobs):
-                fieldnames.append("application_difficulty")
             writer = csv.DictWriter(f, fieldnames=fieldnames)
             writer.writeheader()
             for job in jobs:
@@ -1458,14 +1526,13 @@ def save_results(jobs, output_file="jobs.csv"):
                     "title": job.get("title", ""),
                     "location": job.get("location", ""),
                     "link": job.get("link", ""),
-                    "description": job.get("description", ""),
-                    "created": job.get("created", ""),
+                    "fit_score": job.get("score", ""),
+                    "priority": job.get("priority", ""),
+                    "match_reasons": " | ".join(job.get("match_reasons", [])) if isinstance(job.get("match_reasons"), list) else job.get("match_reasons", ""),
+                    "red_flags": " | ".join(job.get("red_flags", [])) if isinstance(job.get("red_flags"), list) else job.get("red_flags", ""),
                     "salary_min": job.get("salary_min", ""),
                     "salary_max": job.get("salary_max", ""),
-                    "score": job.get("score", ""),
                 }
-                if "application_difficulty" in fieldnames:
-                    row["application_difficulty"] = job.get("application_difficulty", "")
                 writer.writerow(row)
         print(f"✓ Saved {len(jobs)} jobs to {output_file}")
     except Exception as e:
@@ -1476,18 +1543,28 @@ def append_seen_jobs(jobs, seen_file=SEEN_JOBS_FILE):
     """Append new jobs to seen_jobs.csv without duplicating existing entries."""
     seen_entries = load_seen_jobs(seen_file)
     seen_keys = set()
+    
+    # Build set of keys from existing seen jobs (already normalized from load_seen_jobs)
     for entry in seen_entries:
-        key = (entry.get("company"), entry.get("title"), entry.get("link"))
+        company = entry.get("company", "")
+        title = entry.get("title", "")
+        link = entry.get("link", "")
+        key = (company, title, link)
         seen_keys.add(key)
 
     rows_to_append = []
     for job in jobs:
+        # Normalize the new job using same logic
         company_norm = normalize_match_key(job.get("company", ""))
         title_norm = normalize_match_key(job.get("title", ""))
         link_norm = normalize_link(job.get("link", ""))
         key = (company_norm, title_norm, link_norm)
+        
+        # Skip if already seen
         if key in seen_keys:
             continue
+        
+        # Add to set and to rows to append
         seen_keys.add(key)
         rows_to_append.append({
             "job_id": job.get("job_id", ""),
@@ -1500,6 +1577,7 @@ def append_seen_jobs(jobs, seen_file=SEEN_JOBS_FILE):
         })
 
     if not rows_to_append:
+        print(f"   ℹ️  No new jobs to add to {SEEN_JOBS_FILE} (all are duplicates)")
         return 0
 
     file_exists = Path(seen_file).exists()
@@ -1589,31 +1667,49 @@ def main():
         print("❌ Could not fetch any jobs from Adzuna. Please verify your credentials and internet connection.")
         return
 
-    print(f"Jobs fetched: {len(jobs)}")
+    print(f"\n📥 Fetched: {len(jobs)} total job listings from Adzuna")
     applied_entries = load_applied_jobs()
-    print(f"Loaded {len(applied_entries)} applied jobs")
+    print(f"📋 Loaded: {len(applied_entries)} previously applied jobs")
     seen_entries = load_seen_jobs()
-    print(f"Loaded {len(seen_entries)} seen jobs")
+    print(f"👁️  Loaded: {len(seen_entries)} previously seen jobs")
 
+    print(f"\n🔍 Starting job filtering...\n")
+    
+    # Step 1: Filter by config (title/description matching)
+    pre_applied_filter = len(jobs)
     filtered_jobs = filter_jobs(jobs, config)
+    print(f"   ✓ After config filters: {len(filtered_jobs)} jobs")
+    
+    # Step 2: Remove already applied
+    pre_seen_filter = len(filtered_jobs)
     filtered_jobs, applied_skipped = filter_applied_jobs(filtered_jobs, applied_entries)
+    print(f"   ✗ Skipped {applied_skipped} already-applied jobs → {len(filtered_jobs)} remain")
+    
+    # Step 3: Remove already seen
+    pre_dup_filter = len(filtered_jobs)
     filtered_jobs, seen_skipped = filter_seen_jobs(filtered_jobs, seen_entries, allow_seen=config.get("allow_seen_jobs", False))
+    print(f"   ✗ Skipped {seen_skipped} already-seen jobs → {len(filtered_jobs)} remain")
+    
+    # Step 4: Remove duplicates within this run
+    pre_score = len(filtered_jobs)
     filtered_jobs, duplicate_skipped = filter_duplicates(filtered_jobs)
-
-    print(f"✓ After filtering: {len(filtered_jobs)} jobs remain")
-    if applied_skipped > 0:
-        print(f"✓ Skipped {applied_skipped} job(s) already applied to")
-    if seen_skipped > 0:
-        print(f"✓ Skipped {seen_skipped} job(s) already seen")
-    if duplicate_skipped > 0:
-        print(f"✓ Removed {duplicate_skipped} duplicate job(s) within this run")
-    print()
+    print(f"   ✗ Removed {duplicate_skipped} duplicate jobs within this run → {len(filtered_jobs)} remain")
 
     if not filtered_jobs:
-        print("❌ No jobs matched your filters. Try adjusting config.yaml.")
+        print("\n❌ No jobs matched your filters. Try adjusting config.yaml keywords and exclusions.")
         return
 
+    print(f"\n⭐ Starting job scoring with new system...")
     scored_jobs = score_jobs(filtered_jobs, keywords, config)
+    
+    # Count by score/priority
+    high_priority = [j for j in scored_jobs if j.get("priority") == "High"]
+    medium_priority = [j for j in scored_jobs if j.get("priority") == "Medium"]
+    low_priority = [j for j in scored_jobs if j.get("priority") == "Low"]
+    
+    print(f"   🔴 High priority ({len(high_priority)} jobs, score >= 70)")
+    print(f"   🟡 Medium priority ({len(medium_priority)} jobs, score 40-69)")
+    print(f"   🔵 Low priority ({len(low_priority)} jobs, score < 40)")
 
     print_top_matches(scored_jobs, limit=10)
 
@@ -1622,7 +1718,7 @@ def main():
     save_results(scored_jobs)
     append_count = append_seen_jobs(scored_jobs)
     if append_count:
-        print(f"✓ Added {append_count} new job(s) to {SEEN_JOBS_FILE}")
+        print(f"   ✓ Added {append_count} new jobs to {SEEN_JOBS_FILE}")
     
     print("\n💡 To use real job listings from Adzuna:")
     print("   1. Get free API credentials: https://developer.adzuna.com/")
