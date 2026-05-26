@@ -45,3 +45,4 @@ python3 main.py
 - Web dashboard
 - AI resume tailoring
 - International job recommendation engine
+- Improve automation workflows
