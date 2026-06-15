@@ -2,18 +2,25 @@ venv/
 __pycache__/
 *.pyc
 
-config.yaml
-jobs.csv
-application_plan.csv
-applied_jobs.csv
-seen_jobs.csv
-
+# New project layout
+data/
+config/
+resume/
 cover_letters/
+screenshots/
+backups/
 
+# Generated artifacts
+*.log
+temporary_exports*
+*.tmp
+*.bak
+
+# Local config data
+config/config.yaml
+config/autofill_profile.json
 .env
 
 .DS_Store
-resume.txt
-*.pdf
 
 job_description.txt

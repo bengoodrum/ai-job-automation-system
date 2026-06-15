@@ -20,7 +20,14 @@ TARGET_ROLES = [
 
 # POSITIVE KEYWORDS WITH POINTS
 POSITIVE_KEYWORDS = {
-    # Role keywords
+    # Role keywords (high value)
+    "operations analyst": 35,
+    "business systems analyst": 35,
+    "implementation specialist": 30,
+    "revops": 30,
+    "product operations": 30,
+    "technical operations": 25,
+    "workflow automation": 25,
     "analyst": 20,
     "operations": 15,
     "implementation": 15,
@@ -29,21 +36,24 @@ POSITIVE_KEYWORDS = {
     "automation": 15,
     
     # Process/skills keywords
-    "process improvement": 10,
-    "workflow": 10,
+    "process improvement": 12,
+    "workflow": 12,
     "documentation": 10,
     "requirements gathering": 10,
+    "stakeholder communication": 12,
     
-    # Tech keywords
-    "saas": 10,
-    "crm": 10,
-    "salesforce": 10,
-    "jira": 10,
-    "azure devops": 10,
-    "excel": 10,
-    "google sheets": 10,
-    "python": 10,
-    "sql": 10,
+    # Tech keywords (now more valuable)
+    "saas": 12,
+    "crm": 12,
+    "salesforce": 12,
+    "jira": 15,
+    "azure devops": 12,
+    "excel": 15,
+    "google sheets": 12,
+    "python": 12,
+    "sql": 15,
+    "dashboards": 12,
+    "reporting": 12,
     
     # Location
     "remote": 30,
@@ -61,13 +71,24 @@ PENALTIES = {
     "principal": -50,
     "lead": -50,
     
-    # Experience requirements
-    "5+ years": -40,
+    # Experience requirements - NOW PENALTIES INSTEAD OF HARD FILTERS
+    # 0-2 years = no penalty
+    # 3 years = light penalty
+    "3 years": -15,
+    "3+ years": -15,
+    
+    # 4-5 years = moderate penalty (but allow analyst roles through)
+    "4 years": -25,
+    "4+ years": -25,
+    "5 years": -25,
+    "5+ years": -30,
+    
+    # 6+ years = strong penalty (but allow analyst roles through)
     "6+ years": -40,
     "7+ years": -40,
     "8+ years": -40,
     "9+ years": -40,
-    "10+ years": -40,
+    "10+ years": -50,
     
     # Excluded industries/roles
     "construction": -40,
@@ -82,10 +103,10 @@ PENALTIES = {
     "travel coordinator": -40,
     "localization": -40,
     "gaming": -40,
+    "healthcare": -30,
     "healthcare staffing": -40,
+    "nursing": -35,
     "field technician": -40,
-    "nursing": -40,
-    "warehouse coordinator": -40,
     "onsite only": -25,
     "onsite required": -25,
     
@@ -100,6 +121,10 @@ WEAK_FIT_KEYWORDS = {
     "recruiting": -30,
     "travel": -25,
     "hospitality": -25,
+    "healthcare": -25,
+    "consultant": -20,
+    "engineering": -30,
+    "developer": -30,
 }
 
 GOOD_TITLES = [
