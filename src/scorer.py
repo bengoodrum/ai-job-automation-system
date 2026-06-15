@@ -156,87 +156,174 @@ ENTRY_PATTERNS = [
 ]
 
 
+# --- Calibrated scoring model -------------------------------------------------
+# Goal: a wide distribution rather than everything pinned at 100.
+#   95-100 exceptional | 85-94 strong | 70-84 acceptable | 50-69 weak | <50 poor
+SCORE_BASE = 45
+
+# Strong, on-target job titles (only the single best match is counted).
+EXCEPTIONAL_TITLES = [
+    "operations analyst", "business analyst", "business systems analyst",
+    "project coordinator", "technical project coordinator", "program coordinator",
+    "product operations", "revenue operations", "revops", "sales operations",
+    "ai operations", "implementation specialist", "implementation analyst",
+    "workflow automation", "technical support engineer", "qa analyst",
+    "quality assurance analyst", "data operations analyst",
+]
+SECONDARY_TITLES = ["analyst", "operations", "coordinator", "associate", "specialist", "business", "support"]
+
+RELEVANT_SKILLS = [
+    "python", "sql", "excel", "google sheets", "crm", "salesforce", "jira",
+    "reporting", "dashboards", "analytics", "automation", "workflow",
+    "process improvement", "onboarding", "api", "saas", "data", "documentation",
+    "stakeholder", "cross-functional",
+]
+
+SENIOR_TITLE_TERMS = ["senior director", "director", "vp", "vice president", "svp", "evp",
+                      "head of", "chief", "principal"]
+NURSE_TERMS = ["registered nurse", "nurse", " rn ", "lpn", "clinical", "physician"]
+GENERIC_ENGINEER_TITLES = ["software engineer", "data engineer", "devops", "cloud engineer",
+                           "backend engineer", "frontend engineer", "ml engineer",
+                           "machine learning engineer", "systems engineer", "network engineer"]
+FINANCE_TERMS = ["accountant", "controller", "financial analyst", "investment banking",
+                 "tax accountant", "auditor", "financial advisor", "cpa required"]
+CS_DEGREE_TERMS = ["computer science degree", "cs degree", "degree in computer science",
+                   "bs in computer science", "b.s. in computer science"]
+
+
+def _required_years(text):
+    """Largest explicit 'N years' requirement mentioned, else None."""
+    years = [int(m) for m in re.findall(r"(\d{1,2})\s*\+?\s*years", text)]
+    return max(years) if years else None
+
+
 def score_job(job, keywords, config=None):
-    score = 25
-    match_reasons = []
-    red_flags = []
     title = (job.get("title") or "").lower()
     description = (job.get("description") or "").lower()
+    location = (job.get("location") or "").lower()
     text = f"{title} {description}"
-    salary_min_value = None
+    match_reasons = []
+    red_flags = []
+    score = SCORE_BASE
+
     try:
         salary_min_value = float(job.get("salary_min")) if job.get("salary_min") not in (None, "") else None
     except (TypeError, ValueError):
         salary_min_value = None
-    for role in TARGET_ROLES:
-        if role in title:
-            score += 30
-            match_reasons.append(f"Target role: {role}")
-            break
-    for keyword, points in POSITIVE_KEYWORDS.items():
-        if keyword in text:
-            score += points
-            match_reasons.append(f"✓ {keyword}")
-    high_priority_keywords = [kw.lower().strip() for kw in (config.get("high_priority_keywords") or [])] if config else []
-    for keyword in high_priority_keywords:
-        if not keyword:
-            continue
-        if keyword in title:
-            score += 30
-            match_reasons.append(f"★ Title match: {keyword}")
-        elif keyword in description:
-            score += 12
-            match_reasons.append(f"★ Description match: {keyword}")
-    entry_signal = any(pattern in text for pattern in ENTRY_PATTERNS)
-    if entry_signal:
-        score += 12
-        match_reasons.append("★ Entry-level fit")
 
-    business_signal_terms = [
-        "cross-functional", "project support", "onboarding", "reporting",
-        "dashboards", "analytics", "coordination", "product operations",
-        "process improvement",
-    ]
-    if any(term in text for term in business_signal_terms):
-        score += 12
-        match_reasons.append("★ Business operations signal")
-
-    if "remote" in text or "hybrid" in text or "work from home" in text:
-        score += 20
-        match_reasons.append("✓ Remote or hybrid")
-
-    if entry_signal and any(term in title for term in ["operations", "business", "analyst", "coordinator", "associate", "specialist", "support"]):
-        if any(term in text for term in ["automation", "crm", "jira", "excel", "reporting", "workflow", "process improvement"]):
+    # --- Title fit (single best signal) ---
+    title_role = next((role for role in EXCEPTIONAL_TITLES if role in title), None)
+    if title_role:
+        score += 30
+        match_reasons.append(f"On-target role: {title_role}")
+    else:
+        title_role_desc = next((role for role in EXCEPTIONAL_TITLES if role in description), None)
+        secondary = next((t for t in SECONDARY_TITLES if t in title), None)
+        if secondary:
             score += 14
-            match_reasons.append("★ High confidence fit")
+            match_reasons.append(f"Related title: {secondary}")
+        elif title_role_desc:
+            score += 8
+            match_reasons.append(f"Target role in description: {title_role_desc}")
 
-    for keyword, penalty in PENALTIES.items():
-        if keyword in text:
-            score += penalty
-            red_flags.append(f"✗ {keyword}")
-    for keyword, penalty in WEAK_KEYWORDS.items():
-        if keyword in text and keyword not in "event coordinator":
-            score += penalty
-            red_flags.append(f"⚠ {keyword}")
+    # --- Skill relevance (diminishing returns, capped) ---
+    matched_skills = [s for s in RELEVANT_SKILLS if s in text]
+    if matched_skills:
+        skill_points = min(12, len(matched_skills) * 2)
+        score += skill_points
+        match_reasons.append("Relevant skills: " + ", ".join(matched_skills[:5]))
+
+    # --- Entry-level / business-ops signals ---
+    if any(pattern in text for pattern in ENTRY_PATTERNS):
+        score += 5
+        match_reasons.append("Entry-level friendly")
+    if any(term in text for term in ["cross-functional", "project support", "coordination",
+                                     "process improvement", "product operations"]):
+        score += 4
+        match_reasons.append("Business operations signal")
+
+    # --- Location / remote bonuses ---
+    if "hybrid" in text:
+        score += 5
+        match_reasons.append("Hybrid")
+    elif "remote" in text or "work from home" in text:
+        score += 8
+        match_reasons.append("Remote")
+    if "denver" in location or "denver" in text:
+        score += 6
+        match_reasons.append("Denver area")
+
+    # --- Salary ---
     if salary_min_value is not None:
-        if salary_min_value >= 70000:
-            score += 20
-            match_reasons.append(f"✓ Salary: ${salary_min_value:,.0f}")
+        if salary_min_value >= 80000:
+            score += 6
+            match_reasons.append(f"Salary ${salary_min_value:,.0f}")
+        elif salary_min_value >= 70000:
+            score += 4
+            match_reasons.append(f"Salary ${salary_min_value:,.0f}")
         elif salary_min_value < 50000:
+            score -= 12
+            red_flags.append(f"Low salary ${salary_min_value:,.0f}")
+
+    # --- Experience penalties ---
+    req_years = _required_years(text)
+    if req_years is not None:
+        if req_years >= 7:
+            score -= 28
+            red_flags.append(f"Requires {req_years}+ years")
+        elif req_years >= 5:
+            score -= 16
+            red_flags.append(f"Requires {req_years} years")
+        elif req_years >= 3:
+            score -= 8
+            red_flags.append(f"Requires {req_years} years")
+
+    # --- Hard penalties ---
+    if any(term in title for term in SENIOR_TITLE_TERMS):
+        score -= 40
+        red_flags.append("Senior/Director/VP level")
+    if "manager" in title:
+        score -= 20
+        red_flags.append("Manager role")
+        if req_years is not None and req_years >= 8:
             score -= 20
-            red_flags.append(f"✗ Low salary: ${salary_min_value:,.0f}")
-        else:
-            match_reasons.append(f"Salary: ${salary_min_value:,.0f}")
+            red_flags.append("Manager requiring 8+ years")
+    if any(term in text for term in NURSE_TERMS):
+        score -= 50
+        red_flags.append("Nursing/clinical role")
+    if "engineer" in title and "technical support engineer" not in title:
+        if any(term in text for term in CS_DEGREE_TERMS):
+            score -= 40
+            red_flags.append("Engineer requiring CS degree")
+        elif any(term in title for term in GENERIC_ENGINEER_TITLES):
+            score -= 30
+            red_flags.append("Engineering role")
+    if any(term in text for term in FINANCE_TERMS):
+        score -= 30
+        red_flags.append("Finance-heavy role")
+    if any(term in text for term in helpers.CLEARANCE_DEFENSE_TERMS):
+        score -= 50
+        red_flags.append("Security clearance required")
+
     score = max(0, min(100, score))
-    priority = "High" if score >= 70 else "Medium" if score >= 40 else "Low"
-    return {"score": score, "priority": priority, "match_reasons": match_reasons[:5], "red_flags": red_flags[:3]}
+    priority = "High" if score >= 85 else "Medium" if score >= 70 else "Low"
+    return {"score": score, "priority": priority,
+            "match_reasons": match_reasons[:6], "red_flags": red_flags[:4]}
 
 
 def score_jobs(jobs, keywords, config=None):
     scored_jobs = []
     for job in jobs:
         result = score_job(job, keywords, config=config)
-        job_copy = {**job, "score": result["score"], "priority": result["priority"], "match_reasons": result["match_reasons"], "red_flags": result["red_flags"]}
+        job_copy = {
+            **job,
+            "score": result["score"],
+            "priority": result["priority"],
+            "match_reasons": result["match_reasons"],
+            "red_flags": result["red_flags"],
+            "fit_reasons": result["match_reasons"],
+            "concerns": result["red_flags"],
+        }
         scored_jobs.append(job_copy)
     return sorted(scored_jobs, key=lambda x: x["score"], reverse=True)
 
